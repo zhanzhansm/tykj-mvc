@@ -1,15 +1,26 @@
 package com.tykj.mvc.servlet;
 
+import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.File;
-import java.io.IOException;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
+
+import com.tykj.mvc.annotation.Controller;
+import com.tykj.mvc.annotation.RequestMapping;
+import com.tykj.mvc.annotation.Service;
+import com.tykj.mvc.util.MappingInfo;
 
 /**
  * @author lukw
@@ -18,53 +29,105 @@ import java.util.List;
  **/
 public class DispatcherServlet extends HttpServlet {
 
-    private final String basePackage = "com.tykj.mvc";
+	private static final long serialVersionUID = 1L;
 
-    List<Class<?>> clazzes = new ArrayList<Class<?>>();
+	private final String basePackage = "com.tykj.mvc";
 
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        this.doPost(req, resp);
-    }
+	List<Class<?>> clazzes = new ArrayList<Class<?>>();
 
-    @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        super.doPost(req, resp);
-    }
+	Map<String, Object> instanceMap = new HashMap<String, Object>();
 
-    @Override
-    public void init(ServletConfig config) throws ServletException {
-        super.init(config);
-        System.out.println("---------------------------------");
-        try {
-            initPackage(basePackage);
-            System.out.println("dddddddddddddddddddddddd");
-            for (Class<?> clazz : clazzes) {
-                System.out.println(clazz.getSimpleName());
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
+	Map<String, Object> controllerMap = new HashMap<String, Object>();
 
-    void initPackage(String basePackage) throws Exception {
+	Map<String, MappingInfo> mappingMap = new HashMap<String, MappingInfo>();
 
-        String path = "/" + basePackage.replace(".", "/");
-        URL url = this.getClass().getClassLoader().getResource(path);
-        File dir = new File(url.getFile());
-        for (File file : dir.listFiles()) {
-            if (file.isDirectory()) {
-                basePackage = basePackage + "." + file.getName();
-                initPackage(basePackage);
-            }else {
-                String className = basePackage + "."+file.getName().replace(".class","");
-                clazzes.add(Class.forName(className));
-            }
-        }
-    }
+	@Override
+	protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+		this.doPost(req, resp);
+	}
 
-    public static void main(String[] args) throws Exception {
-        DispatcherServlet dispatcherServlet = new DispatcherServlet();
-        dispatcherServlet.initPackage("com.tykj.mvc");
-    }
+	@Override
+	protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+		super.doPost(req, resp);
+	}
+
+	@Override
+	public void init(ServletConfig config) throws ServletException {
+
+		super.init(config);
+		initPackage(basePackage);
+		initInstance();
+		initAutowired();
+	}
+
+	void initInstance() {
+
+		for (Class<?> clazz : clazzes) {
+			try {
+				if (clazz.isAnnotationPresent(Controller.class)) {
+					controllerMap.put(clazz.getName(), clazz.newInstance());
+				}
+				if (clazz.isAnnotationPresent(Service.class)) {
+					instanceMap.put(clazz.getName(), clazz.newInstance());
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+	}
+
+	public void initPackage(String scanPackage) {
+
+		String path = scanPackage.replace(".", "/");
+		URL url = this.getClass().getClassLoader().getResource(path);
+		System.out.println(path);
+		File dir = new File(url.getFile());
+		for (File file : dir.listFiles()) {
+			if (file.isDirectory()) {
+				initPackage(scanPackage + "." + file.getName());
+			} else {
+				try {
+					String className = scanPackage + "." + file.getName().replace(".class", "");
+					clazzes.add(Class.forName(className));
+				} catch (ClassNotFoundException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
+	void initAutowired() {
+
+	}
+
+	void initMappingInfo() {
+
+		String url = "";
+		RequestMapping mapping = null;
+		Set<Entry<String, Object>> entrySet = controllerMap.entrySet();
+		for (Entry<String, Object> entry : entrySet) {
+			Class<?> clazz = entry.getValue().getClass();
+			if (clazz.isAnnotationPresent(RequestMapping.class)) {
+				mapping = clazz.getAnnotation(RequestMapping.class);
+				url = mapping.value();
+			}
+			Method[] methods = clazz.getMethods();
+			for (int i = 0; i < methods.length; i++) {
+				Method method = methods[i];
+				if (method.isAnnotationPresent(RequestMapping.class)) {
+					mapping = method.getAnnotation(RequestMapping.class);
+					url = url + mapping.value();
+					mappingMap.put(url, new MappingInfo(url, clazz, method, null));
+				}
+			}
+		}
+
+	}
+
+	public static void main(String[] args) throws Exception {
+		DispatcherServlet dispatcherServlet = new DispatcherServlet();
+		dispatcherServlet.initPackage("com.tykj.mvc");
+		dispatcherServlet.initInstance();
+		System.out.println(dispatcherServlet.instanceMap);
+	}
 }
