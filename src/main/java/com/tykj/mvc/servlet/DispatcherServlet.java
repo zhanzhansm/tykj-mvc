@@ -1,13 +1,10 @@
-package com.tykj.mvc;
-
-import com.sun.org.apache.xpath.internal.SourceTree;
+package com.tykj.mvc.servlet;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.sound.midi.Soundbank;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
@@ -38,20 +35,30 @@ public class DispatcherServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        System.out.println("---------------------------------");
+        try {
+            initPackage(basePackage);
+            System.out.println("dddddddddddddddddddddddd");
+            for (Class<?> clazz : clazzes) {
+                System.out.println(clazz.getSimpleName());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     void initPackage(String basePackage) throws Exception {
 
-        URL url = this.getClass().getClassLoader().getResource("/" + basePackage.replace("\\.", "/"));
-        System.out.println(url);
+        String path = "/" + basePackage.replace(".", "/");
+        URL url = this.getClass().getClassLoader().getResource(path);
         File dir = new File(url.getFile());
-
         for (File file : dir.listFiles()) {
             if (file.isDirectory()) {
                 basePackage = basePackage + "." + file.getName();
                 initPackage(basePackage);
-            } else {
-                clazzes.add(Class.forName(basePackage + file.getName()));
+            }else {
+                String className = basePackage + "."+file.getName().replace(".class","");
+                clazzes.add(Class.forName(className));
             }
         }
     }
