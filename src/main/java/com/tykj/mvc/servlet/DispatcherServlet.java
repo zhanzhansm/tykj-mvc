@@ -2,14 +2,12 @@ package com.tykj.mvc.servlet;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Set;
+import java.util.logging.Logger;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
@@ -17,10 +15,14 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.tykj.mvc.annotation.Autowired;
 import com.tykj.mvc.annotation.Controller;
 import com.tykj.mvc.annotation.RequestMapping;
 import com.tykj.mvc.annotation.Service;
+import com.tykj.mvc.controller.DemoController;
 import com.tykj.mvc.util.MappingInfo;
+import com.tykj.mvc.util.RequestUtil;
+import com.tykj.mvc.util.ResponseUtil;
 
 /**
  * @author lukw
@@ -33,22 +35,40 @@ public class DispatcherServlet extends HttpServlet {
 
     private final String basePackage = "com.tykj.mvc";
 
-    List<Class<?>> clazzes = new ArrayList<Class<?>>();
+    private List<Class<?>> clazzes = new ArrayList<Class<?>>();
 
-    Map<String, Object> instanceMap = new HashMap<String, Object>();
+    private Map<String, Object> instanceMap = new HashMap<String, Object>();
 
-    Map<String, Object> controllerMap = new HashMap<String, Object>();
+    private Map<String, Object> controllerMap = new HashMap<String, Object>();
 
-    Map<String, MappingInfo> mappingMap = new HashMap<String, MappingInfo>();
+    private Map<String, MappingInfo> mappingMap = new HashMap<String, MappingInfo>();
+
+    private Logger logger = Logger.getLogger("dispatcherServlet");
 
     @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        this.doPost(req, resp);
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+
+        String url = "/mvc/query";
+        Map<String, Object> parameter = RequestUtil.initRequestParam(request);
+        System.out.println(parameter);
+        MappingInfo mappingInfo = mappingMap.get(url);
+        String msg = "";
+        if (mappingInfo == null) {
+            msg = "404";
+        } else {
+            try {
+                msg = mappingInfo.getMethod().invoke(mappingInfo.getClazz(), url).toString();
+            } catch (Exception e) {
+                e.printStackTrace();
+                msg = "500";
+            }
+        }
+        ResponseUtil.writeMsg(response, msg);
     }
 
     @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        super.doPost(req, resp);
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        this.doGet(request, response);
     }
 
     @Override
@@ -68,7 +88,14 @@ public class DispatcherServlet extends HttpServlet {
                     controllerMap.put(clazz.getName(), clazz.newInstance());
                 }
                 if (clazz.isAnnotationPresent(Service.class)) {
-                    instanceMap.put(clazz.getName(), clazz.newInstance());
+                    Object instance = clazz.newInstance();
+                    instanceMap.put(clazz.getName(), instance);
+                    Class<?>[] interfaces = clazz.getInterfaces();
+                    if (interfaces != null) {
+                        Arrays.asList(interfaces).forEach(interfaceClazz -> {
+                            instanceMap.put(interfaceClazz.getName(), instance);
+                        });
+                    }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -98,12 +125,43 @@ public class DispatcherServlet extends HttpServlet {
 
     void initAutowired() {
 
+        instanceMap.forEach((key, instance) -> {
+
+            Field[] fields = instance.getClass().getDeclaredFields();
+            try {
+                for (int i = 0; i < fields.length; i++) {
+                    Field field = fields[i];
+                    field.setAccessible(true);
+                    if (field.isAnnotationPresent(Autowired.class)) {
+                        logger.info(field.getName());
+                        field.set(instance, instanceMap.get(field.getType().getName()));
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+        controllerMap.forEach((key, instance) -> {
+
+            Field[] fields = instance.getClass().getDeclaredFields();
+            try {
+                for (int i = 0; i < fields.length; i++) {
+                    Field field = fields[i];
+                    field.setAccessible(true);
+                    if (field.isAnnotationPresent(Autowired.class)) {
+                        field.set(instance, instanceMap.get(field.getType().getName()));
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     void initMappingInfo() {
 
         String url = "";
-        RequestMapping mapping = null;
+        RequestMapping mapping;
         Set<Entry<String, Object>> entrySet = controllerMap.entrySet();
         for (Entry<String, Object> entry : entrySet) {
             Class<?> clazz = entry.getValue().getClass();
@@ -116,8 +174,8 @@ public class DispatcherServlet extends HttpServlet {
                 Method method = methods[i];
                 if (method.isAnnotationPresent(RequestMapping.class)) {
                     mapping = method.getAnnotation(RequestMapping.class);
-                    url = url + mapping.value();
-                    mappingMap.put(url, new MappingInfo(url, clazz, method, null));
+                    url += mapping.value();
+                    mappingMap.put(url, new MappingInfo(url, controllerMap.get(clazz.getName()), method, null));
                 }
             }
         }
@@ -125,9 +183,16 @@ public class DispatcherServlet extends HttpServlet {
     }
 
     public static void main(String[] args) throws Exception {
+
         DispatcherServlet dispatcherServlet = new DispatcherServlet();
         dispatcherServlet.initPackage("com.tykj.mvc");
         dispatcherServlet.initInstance();
+        dispatcherServlet.initAutowired();
+        dispatcherServlet.initMappingInfo();
+        System.out.println(dispatcherServlet.controllerMap);
         System.out.println(dispatcherServlet.instanceMap);
+        System.out.println(dispatcherServlet.mappingMap);
+        DemoController demoController = (DemoController) dispatcherServlet.controllerMap.get("com.tykj.mvc.controller.DemoController");
+        System.out.println(demoController.query("DemoController"));
     }
 }
