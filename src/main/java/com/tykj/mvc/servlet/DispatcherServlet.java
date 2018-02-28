@@ -8,7 +8,6 @@ import java.net.URL;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.logging.Logger;
-
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -23,6 +22,7 @@ import com.tykj.mvc.controller.DemoController;
 import com.tykj.mvc.util.MappingInfo;
 import com.tykj.mvc.util.RequestUtil;
 import com.tykj.mvc.util.ResponseUtil;
+import com.tykj.mvc.util.StringUtils;
 
 /**
  * @author lukw
@@ -45,13 +45,18 @@ public class DispatcherServlet extends HttpServlet {
 
     private Logger logger = Logger.getLogger("dispatcherServlet");
 
+    private List<String> ignoreList = new ArrayList<>();
+
+
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
 
-        String url = "/mvc/query";
+        String url = request.getRequestURI();
         Map<String, Object> parameter = RequestUtil.initRequestParam(request);
-        System.out.println(parameter);
         MappingInfo mappingInfo = mappingMap.get(url);
+        if (ignoreList.contains(StringUtils.getSuffix(url))) {
+            return;
+        }
         String msg = "";
         if (mappingInfo == null) {
             msg = "404";
@@ -78,6 +83,8 @@ public class DispatcherServlet extends HttpServlet {
         initInstance();
         initAutowired();
         initMappingInfo();
+        String ignores = config.getInitParameter("ignores");
+        Arrays.asList(ignores.split("\\,")).forEach(ignore -> ignoreList.add(ignore));
     }
 
     void initInstance() {
@@ -107,7 +114,6 @@ public class DispatcherServlet extends HttpServlet {
 
         String path = scanPackage.replace(".", "/");
         URL url = this.getClass().getClassLoader().getResource(path);
-        System.out.println(path);
         File dir = new File(url.getFile());
         for (File file : dir.listFiles()) {
             if (file.isDirectory()) {
@@ -160,22 +166,25 @@ public class DispatcherServlet extends HttpServlet {
 
     void initMappingInfo() {
 
-        String url = "";
+        String baseUrl = "";
         RequestMapping mapping;
         Set<Entry<String, Object>> entrySet = controllerMap.entrySet();
         for (Entry<String, Object> entry : entrySet) {
             Class<?> clazz = entry.getValue().getClass();
             if (clazz.isAnnotationPresent(RequestMapping.class)) {
                 mapping = clazz.getAnnotation(RequestMapping.class);
-                url = mapping.value();
+                baseUrl = mapping.value();
             }
             Method[] methods = clazz.getMethods();
             for (int i = 0; i < methods.length; i++) {
                 Method method = methods[i];
                 if (method.isAnnotationPresent(RequestMapping.class)) {
                     mapping = method.getAnnotation(RequestMapping.class);
-                    url += mapping.value();
-                    mappingMap.put(url, new MappingInfo(url, controllerMap.get(clazz.getName()), method, null));
+                    String methodUrl = baseUrl + mapping.value();
+                    if (mappingMap.containsKey(methodUrl)) {
+                        throw new RuntimeException(methodUrl + ": 相同url已存在");
+                    }
+                    mappingMap.put(methodUrl, new MappingInfo(methodUrl, controllerMap.get(clazz.getName()), method, null));
                 }
             }
         }

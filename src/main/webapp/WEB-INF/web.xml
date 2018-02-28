@@ -8,6 +8,10 @@
         <servlet-name>dispatcher</servlet-name>
         <servlet-class>com.tykj.mvc.servlet.DispatcherServlet</servlet-class>
         <load-on-startup>1</load-on-startup>
+        <init-param>
+            <param-name>ignores</param-name>
+            <param-value>.js,.gif,.jpg,.png,.css,.ico</param-value>
+        </init-param>
     </servlet>
     <servlet-mapping>
         <servlet-name>dispatcher</servlet-name>
